@@ -93,6 +93,7 @@ jobs:
           - { target: aarch64-pc-windows-msvc     , os: windows-11-arm                }
           - { target: x86_64-unknown-linux-gnu    , os: ubuntu-24.04, use-cross: true }
           - { target: x86_64-unknown-linux-musl   , os: ubuntu-24.04, use-cross: true }
+          - { target: riscv64gc-unknown-linux-gnu , os: ubuntu-24.04, use-cross: true }
     env:
       BUILD_CMD: cargo
     steps:
@@ -105,6 +106,7 @@ jobs:
         case ${{ matrix.job.target }} in
           arm-unknown-linux-*) sudo apt-get -y update ; sudo apt-get -y install gcc-arm-linux-gnueabihf ;;
           aarch64-unknown-linux-gnu) sudo apt-get -y update ; sudo apt-get -y install gcc-aarch64-linux-gnu ;;
+          riscv64gc-unknown-linux-gnu) sudo apt-get -y update; sudo apt-get -y install gcc-riscv64-linux-gnu ;;
         esac
 
     - name: Install Rust toolchain
@@ -162,9 +164,9 @@ jobs:
       id: test-options
       shell: bash
       run: |
-        # test only library unit tests and binary for arm-type targets
+        # test only library unit tests and binary for arm/riscv-type targets
         unset CARGO_TEST_OPTIONS
-        unset CARGO_TEST_OPTIONS ; case ${{ matrix.job.target }} in arm-* | aarch64-*) CARGO_TEST_OPTIONS="--bin ${{ needs.crate_metadata.outputs.name }}" ;; esac;
+        unset CARGO_TEST_OPTIONS ; case ${{ matrix.job.target }} in arm-* | aarch64-* | riscv64gc-*) CARGO_TEST_OPTIONS="--bin ${{ needs.crate_metadata.outputs.name }}" ;; esac;
         echo "CARGO_TEST_OPTIONS=${CARGO_TEST_OPTIONS}" >> $GITHUB_OUTPUT
 
     - name: Run tests
