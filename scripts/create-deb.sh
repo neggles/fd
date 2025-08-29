@@ -1,15 +1,22 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
+
 COPYRIGHT_YEARS="2018 - "$(date "+%Y")
 MAINTAINER="David Peter <mail@david-peter.de>"
 REPO="https://github.com/sharkdp/fd"
 DPKG_STAGING="${CICD_INTERMEDIATES_DIR:-.}/debian-package"
 DPKG_DIR="${DPKG_STAGING}/dpkg"
+
+# ensure DPKG_DIR exists and is clean
+rm -fr "${DPKG_DIR}"
 mkdir -p "${DPKG_DIR}"
 
-if [[ -z "$TARGET" ]]; then
+# set target to native if not set
+if [[ -z "${TARGET:-}" ]]; then
   TARGET="$(rustc -vV | sed -n 's|host: \(.*\)|\1|p')"
 fi
 
+# set Conficts: based on target
 case "$TARGET" in
   *-musl*)
     DPKG_BASENAME=fd-musl
@@ -21,29 +28,39 @@ case "$TARGET" in
     ;;
 esac
 
-if [[ -z "$DPKG_VERSION" ]]; then
-  DPKG_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r .packages[0].version)
+# set DPKG_VERSION from cargo metadata if not set
+if [[ -z "${DPKG_VERSION:-}" ]]; then
+  DPKG_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
 fi
 
-unset DPKG_ARCH
-case "${TARGET}" in
-  aarch64-*-linux-*) DPKG_ARCH=arm64 ;;
-  arm-*-linux-*hf) DPKG_ARCH=armhf ;;
-  i686-*-linux-*) DPKG_ARCH=i686 ;;
-  x86_64-*-linux-*) DPKG_ARCH=amd64 ;;
-  *) DPKG_ARCH=notset ;;
-esac;
+# set BIN_PATH and DPKG_ARCH based on whether we're cross-compiling or not
+if [[ "${TARGET}" == "$(rustc -vV | sed -n 's|host: \(.*\)|\1|p')" ]]; then
+    # native build, not via cross
+    DPKG_ARCH=$(dpkg --print-architecture)
+    BIN_PATH=${BIN_PATH:-"target/release/fd"}
+else
+    # cross-build
+    unset DPKG_ARCH
+    case "${TARGET}" in
+      aarch64-*-linux-*) DPKG_ARCH=arm64 ;;
+      arm-*-linux-*hf) DPKG_ARCH=armhf ;;
+      i686-*-linux-*) DPKG_ARCH=i686 ;;
+      x86_64-*-linux-*) DPKG_ARCH=amd64 ;;
+      riscv64gc*-linux-*) DPKG_ARCH=riscv64 ;;
+      *) DPKG_ARCH=notset ;;
+    esac;
+    BIN_PATH=${BIN_PATH:-"target/${TARGET}/release/fd"}
+fi
 
+# set output .deb filename
 DPKG_NAME="${DPKG_BASENAME}_${DPKG_VERSION}_${DPKG_ARCH}.deb"
-
-BIN_PATH=${BIN_PATH:-target/${TARGET}/release/fd}
 
 # Binary
 install -Dm755 "${BIN_PATH}" "${DPKG_DIR}/usr/bin/fd"
 
 # Man page
 install -Dm644 'doc/fd.1' "${DPKG_DIR}/usr/share/man/man1/fd.1"
-gzip -n --best "${DPKG_DIR}/usr/share/man/man1/fd.1"
+gzip -fn --best "${DPKG_DIR}/usr/share/man/man1/fd.1"
 
 # Autocompletion files
 install -Dm644 'autocomplete/fd.bash' "${DPKG_DIR}/usr/share/bash-completion/completions/fd"
@@ -55,7 +72,7 @@ install -Dm644 "README.md" "${DPKG_DIR}/usr/share/doc/${DPKG_BASENAME}/README.md
 install -Dm644 "LICENSE-MIT" "${DPKG_DIR}/usr/share/doc/${DPKG_BASENAME}/LICENSE-MIT"
 install -Dm644 "LICENSE-APACHE" "${DPKG_DIR}/usr/share/doc/${DPKG_BASENAME}/LICENSE-APACHE"
 install -Dm644 "CHANGELOG.md" "${DPKG_DIR}/usr/share/doc/${DPKG_BASENAME}/changelog"
-gzip -n --best "${DPKG_DIR}/usr/share/doc/${DPKG_BASENAME}/changelog"
+gzip -fn --best "${DPKG_DIR}/usr/share/doc/${DPKG_BASENAME}/changelog"
 
 # Create symlinks so fdfind can be used as well:
 ln -s "/usr/bin/fd" "${DPKG_DIR}/usr/bin/fdfind"
@@ -125,7 +142,8 @@ EOF
 
 DPKG_PATH="${DPKG_STAGING}/${DPKG_NAME}"
 
-if [[ -n $GITHUB_OUTPUT ]]; then
+# if running in CI, tell other steps where to find our outputs
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   echo "DPKG_NAME=${DPKG_NAME}" >> "$GITHUB_OUTPUT"
   echo "DPKG_PATH=${DPKG_PATH}" >> "$GITHUB_OUTPUT"
 fi
